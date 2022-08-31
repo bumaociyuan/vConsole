@@ -1,5 +1,6 @@
 <script lang="ts">
-  import copy from 'copy-text-to-clipboard';
+  /* import copy from 'copy-text-to-clipboard'; */
+  import ClipboardJS from 'clipboard'
   import * as tool from '../lib/tool';
   import Icon from '../component/icon.svelte';
 
@@ -20,7 +21,8 @@
         text = content;
       }
     }
-    copy(text, copyOptions);
+    /* copy(text, copyOptions); */
+    ClipboardJS.copy(text)
     showSuc = true;
     setTimeout(() => {
       showSuc = false;
