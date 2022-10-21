@@ -20,9 +20,15 @@ export interface IVConsoleLog {
   _id: string;
   type: IConsoleLogMethod;
   cmdType?: 'input' | 'output';
-  repeated?: number;
+  repeated: number;
+  toggle: Record<string, boolean>;
   date: number;
   data: IVConsoleLogData[]; // the `args: any[]` of `console.log(...args)`
+  // hide?: boolean;
+  groupLevel: number;
+  groupLabel?: symbol;
+  groupHeader?: 0 | 1 | 2; // 0=not_header, 1=is_header(no_collapsed), 2=is_header(collapsed)
+  groupCollapsed?: boolean; // collapsed by it's group header
 }
 
 export type IVConsoleLogListMap = { [pluginId: string]: IVConsoleLog[] };
@@ -55,7 +61,11 @@ export class VConsoleLogModel extends VConsoleModel {
   public ADDED_LOG_PLUGIN_ID: string[] = [];
   public maxLogNumber: number = 1000;
   protected logCounter: number = 0; // a counter used to do some tasks on a regular basis
+  protected groupLevel: number = 0; // for `console.group()`
+  protected groupLabelCollapsedStack: { label: symbol, collapsed: boolean }[] = [];
   protected pluginPattern: RegExp;
+  protected logQueue: IVConsoleLog[] = [];
+  protected flushLogScheduled: boolean = false;
 
   /**
    * The original `window.console` methods.
@@ -113,27 +123,39 @@ export class VConsoleLogModel extends VConsoleModel {
 
   /**
    * Hook `window.console` with vConsole log method.
-   * Methods will be hooked only once. 
+   * Methods will be hooked only once.
    */
   public mockConsole() {
     if (typeof this.origConsole.log === 'function') {
       return;
     }
-    const methodList = this.LOG_METHODS;
-
+    
     // save original console object
     if (!window.console) {
       (<any>window.console) = {};
     } else {
-      methodList.map((method) => {
+      this.LOG_METHODS.map((method) => {
         this.origConsole[method] = window.console[method];
       });
       this.origConsole.time = window.console.time;
       this.origConsole.timeEnd = window.console.timeEnd;
       this.origConsole.clear = window.console.clear;
+      this.origConsole.group = window.console.group;
+      this.origConsole.groupCollapsed = window.console.groupCollapsed;
+      this.origConsole.groupEnd = window.console.groupEnd;
     }
 
-    methodList.map((method) => {
+    this._mockConsoleLog();
+    this._mockConsoleTime();
+    this._mockConsoleGroup();
+    this._mockConsoleClear();
+
+    // convenient for other uses
+    (<any>window)._vcOrigConsole = this.origConsole;
+  }
+
+  protected _mockConsoleLog() {
+    this.LOG_METHODS.map((method) => {
       window.console[method] = ((...args) => {
         this.addLog({
           type: method,
@@ -141,34 +163,67 @@ export class VConsoleLogModel extends VConsoleModel {
         });
       }).bind(window.console);
     });
+  }
 
+  protected _mockConsoleTime() {
     const timeLog: { [label: string]: number } = {};
+
     window.console.time = ((label: string = '') => {
       timeLog[label] = Date.now();
     }).bind(window.console);
+
     window.console.timeEnd = ((label: string = '') => {
       const pre = timeLog[label];
+      let t = 0;
       if (pre) {
-        this.addLog({
-          type: 'log',
-          origData: [label + ':', (Date.now() - pre) + 'ms'],
-        });
+        t = Date.now() - pre;
         delete timeLog[label];
-      } else {
+      }
+      this.addLog({
+        type: 'log',
+        origData: [`${label}: ${t}ms`],
+      });
+    }).bind(window.console);
+  }
+
+  protected _mockConsoleGroup() {
+    const groupFunction = (isCollapsed: boolean) => {
+      return ((label = 'console.group') => {
+        const labelSymbol = Symbol(label);
+        this.groupLabelCollapsedStack.push({ label: labelSymbol, collapsed: isCollapsed });
+
         this.addLog({
           type: 'log',
-          origData: [label + ': 0ms'],
+          origData: [label],
+          isGroupHeader: isCollapsed ? 2 : 1,
+          isGroupCollapsed: false,
+        }, {
+          noOrig: true,
         });
-      }
-    }).bind(window.console);
 
+        this.groupLevel++;
+        if (isCollapsed) {
+          this.origConsole.groupCollapsed(label);
+        } else {
+          this.origConsole.group(label);
+        }
+      }).bind(window.console);
+    };
+    window.console.group = groupFunction(false);
+    window.console.groupCollapsed = groupFunction(true);
+
+    window.console.groupEnd = (() => {
+      this.groupLabelCollapsedStack.pop();
+      this.groupLevel = Math.max(0, this.groupLevel - 1);
+      this.origConsole.groupEnd();
+    }).bind(window.console);
+  }
+
+  protected _mockConsoleClear() {
     window.console.clear = ((...args) => {
       this.clearLog();
       this.callOriginalConsole('clear', ...args);
     }).bind(window.console);
-
-    // convenient for other uses
-    (<any>window)._vcOrigConsole = this.origConsole;
   }
 
   /**
@@ -228,37 +283,39 @@ export class VConsoleLogModel extends VConsoleModel {
       return store;
     });
   }
-  
+
   /**
    * Add a vConsole log.
    */
-  public addLog(item: { type: IConsoleLogMethod, origData: any[] } = { type: 'log', origData: [] }, opt?: IVConsoleAddLogOptions) {
+  public addLog(
+    item: {
+      type: IConsoleLogMethod,
+      origData: any[],
+      isGroupHeader?: 0 | 1 | 2,
+      isGroupCollapsed?: boolean,
+    } = { type: 'log', origData: [], isGroupHeader: 0, isGroupCollapsed: false, }, 
+    opt?: IVConsoleAddLogOptions
+  ) {
+    // get group
+    const previousGroup = this.groupLabelCollapsedStack[this.groupLabelCollapsedStack.length - 2];
+    const currentGroup = this.groupLabelCollapsedStack[this.groupLabelCollapsedStack.length - 1];
     // prepare data
     const log: IVConsoleLog = {
       _id: tool.getUniqueID(),
       type: item.type,
       cmdType: opt?.cmdType,
+      toggle: {},
       date: Date.now(),
       data: getLogDatasWithFormatting(item.origData || []),
+      repeated: 0,
+      groupLabel: currentGroup?.label,
+      groupLevel: this.groupLevel,
+      groupHeader: item.isGroupHeader,
+      groupCollapsed: item.isGroupHeader ? !!previousGroup?.collapsed : !!currentGroup?.collapsed,
     };
-    // for (let i = 0; i < item?.origData.length; i++) {
-    //   const data: IVConsoleLogData = {
-    //     origData: item.origData[i],
-    //   };
-    //   log.data.push(data);
-    // }
-    // log.data = getLogDatasWithFormatting(item?.origData);
 
-    // extract pluginId by `[xxx]` format
-    const pluginId = this._extractPluginIdByLog(log);
+    this._signalLog(log);
 
-    if (this._isRepeatedLog(pluginId, log)) {
-      this._updateLastLogRepeated(pluginId);
-    } else {
-      this._pushLogList(pluginId, log);
-      this._limitLogListLength();
-    }
-    
     if (!opt?.noOrig) {
       // logging to original console
       this.callOriginalConsole(item.type, ...item.origData);
@@ -292,6 +349,54 @@ export class VConsoleLogModel extends VConsoleModel {
     }, { cmdType: 'output' });
   };
 
+  protected _signalLog(log: IVConsoleLog) {
+    // throttle addLog
+    if (!this.flushLogScheduled) {
+      this.flushLogScheduled = true;
+      window.requestAnimationFrame(() => {
+        this.flushLogScheduled = false;
+        this._flushLogs();
+      });
+    }
+    this.logQueue.push(log);
+  }
+
+  protected _flushLogs() {
+    const logQueue = this.logQueue;
+    this.logQueue = [];
+    const pluginLogs: Record<string, IVConsoleLog[]> = {};
+
+    // extract pluginId by `[xxx]` format
+    for (const log of logQueue) {
+      const pluginId = this._extractPluginIdByLog(log);
+
+      (pluginLogs[pluginId] = pluginLogs[pluginId] || []).push(log);
+    }
+
+    const pluginIds = Object.keys(pluginLogs);
+    for (const pluginId of pluginIds) {
+      const logs = pluginLogs[pluginId];
+
+      const store = Store.get(pluginId);
+      store.update((store) => {
+        let logList = [...store.logList];
+
+        for (const log of logs) {
+          if (this._isRepeatedLog(logList, log)) {
+            this._updateLastLogRepeated(logList);
+          } else {
+            logList.push(log);
+          }
+        }
+
+        logList = this._limitLogListLength(logList);
+
+        return { logList };
+      })
+    }
+    contentStore.updateTime();
+  }
+
   protected _extractPluginIdByLog(log: IVConsoleLog) {
     // if origData[0] is `[xxx]` format, and `xxx` is a Log plugin id,
     // then put this log to that plugin,
@@ -312,9 +417,8 @@ export class VConsoleLogModel extends VConsoleModel {
     return pluginId;
   }
 
-  protected _isRepeatedLog(pluginId: string, log: IVConsoleLog) {
-    const store = Store.getRaw(pluginId);
-    const lastLog = store.logList[store.logList.length - 1];
+  protected _isRepeatedLog(logList: IVConsoleLog[], log: IVConsoleLog) {
+    const lastLog = logList[logList.length - 1];
     if (!lastLog) {
       return false;
     }
@@ -332,42 +436,32 @@ export class VConsoleLogModel extends VConsoleModel {
     return isRepeated;
   }
 
-  protected _updateLastLogRepeated(pluginId: string) {
-    Store.get(pluginId).update((store) => {
-      const list = store.logList
-      const last = list[list.length - 1];
-      last.repeated = last.repeated ? last.repeated + 1 : 2;
-      return store;
-    });
+  protected _updateLastLogRepeated(logList: IVConsoleLog[]) {
+    const last = logList[logList.length - 1];
+    const repeated = last.repeated ? last.repeated + 1 : 2;
+    logList[logList.length - 1] = {
+      ...last,
+      repeated,
+    };
+    return logList;
   }
 
-  protected _pushLogList(pluginId: string, log: IVConsoleLog) {
-    Store.get(pluginId).update((store) => {
-      store.logList.push(log);
-      return store;
-    });
-    contentStore.updateTime();
-  }
-
-  protected _limitLogListLength() {
+  protected _limitLogListLength(logList: IVConsoleLog[]): IVConsoleLog[] {
     // update logList length every N rounds
-    const N = 10;
-    this.logCounter++;
-    if (this.logCounter % N !== 0) {
-      return;
-    }
-    this.logCounter = 0;
+    // const N = 10;
+    // this.logCounter++;
+    // if (this.logCounter % N !== 0) {
+    //   return logList;
+    // }
+    // this.logCounter = 0;
 
-    const stores = Store.getAll();
-    for (const id in stores) {
-      stores[id].update((store) => {
-        if (store.logList.length > this.maxLogNumber - N) {
-          // delete N more logs for performance
-          store.logList.splice(0, store.logList.length - this.maxLogNumber + N);
-          // this.callOriginalConsole('info', 'delete', id, store[id].logList.length);
-        }
-        return store;
-      });
+    const len = logList.length;
+    const maxLen = this.maxLogNumber;
+    if (len > maxLen) {
+      // delete N more logs for performance
+      // this.callOriginalConsole('info', 'delete', len, len - maxLen);
+      return logList.slice(len - maxLen, len);
     }
+    return logList;
   }
 }

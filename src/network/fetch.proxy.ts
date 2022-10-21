@@ -118,13 +118,13 @@ export class FetchProxyHandler<T extends typeof fetch> implements ProxyHandler<T
     this.onUpdateCallback = onUpdateCallback;
   }
 
-  public apply(target: T, thisArg: T, argsList) {
+  public apply(target: T, thisArg: typeof window, argsList) {
     const input: RequestInfo = argsList[0];
     const init: RequestInit = argsList[1];
     const item = new VConsoleNetworkRequestItem();
     this.beforeFetch(item, input, init);
 
-    return (<ReturnType<T>>target.apply(thisArg, argsList)).then(this.afterFetch(item)).catch((e) => {
+    return (<ReturnType<T>>target.apply(window, argsList)).then(this.afterFetch(item)).catch((e) => {
       // mock finally
       item.endTime = Date.now();
       item.costTime = item.endTime - (item.startTime || item.endTime);
@@ -159,6 +159,8 @@ export class FetchProxyHandler<T extends typeof fetch> implements ProxyHandler<T
     item.readyState = 1;
     if (!item.startTime) { // UNSENT
       item.startTime = Date.now();
+      const sd = tool.getDate(item.startTime);
+      item.startTimeText = `${sd.year}-${sd.month}-${sd.day} ${sd.hour}:${sd.minute}:${sd.second}.${sd.millisecond}`;
     }
 
     if (Object.prototype.toString.call(requestHeader) === '[object Headers]') {

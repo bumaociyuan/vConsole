@@ -1,3 +1,4 @@
+<svelte:options immutable/>
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import * as tool from '../lib/tool';
@@ -11,25 +12,19 @@
 
   let dataValue: string = '';
   let valueType: string = '';
-  let isInited: boolean = false;
   let isInTree: boolean = false;
 
   $: {
-    if (!isInited) {
-      // the value is NOT in a tree when key is undefined
-      isInTree = dataKey !== undefined;
+    // the value is NOT in a tree when key is undefined
+    isInTree = dataKey !== undefined;
 
-      const ret = getValueTextAndType(origData, isInTree);
-      valueType = ret.valueType;
-      dataValue = ret.text;
+    const ret = getValueTextAndType(origData, isInTree);
+    valueType = ret.valueType;
+    dataValue = ret.text;
 
-      if (!isInTree && valueType === 'string') {
-        // convert string
-        dataValue = tool.htmlEncode(dataValue.replace(/\\n/g, '\n').replace(/\\t/g, '    '));
-      }
-
-      // (window as any)._vcOrigConsole.log('logValue update', origData);
-      isInited = true;
+    if (!isInTree && valueType === 'string') {
+      // if it's a single string, then keep line breaks.
+      dataValue = dataValue.replace(/\\n/g, '\n').replace(/\\t/g, '    ');
     }
   }
 
@@ -43,9 +38,5 @@
 </script>
 
 {#if dataKey !== undefined}<i class="vc-log-key" class:vc-log-key-symbol={keyType === 'symbol'} class:vc-log-key-private={keyType === 'private'}>{tool.getVisibleText(dataKey)}</i>:{/if} <i class="vc-log-val vc-log-val-{valueType}" class:vc-log-val-haskey={dataKey !== undefined} style="{style}">
-  {#if !isInTree && valueType === 'string'}
-    {@html dataValue}
-  {:else}
-    {dataValue}
-  {/if}
+  {dataValue}
 </i>

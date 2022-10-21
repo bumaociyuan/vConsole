@@ -290,6 +290,7 @@ export class VConsole {
       id: plugin.id,
       name: plugin.name,
       hasTabPanel: false,
+      tabOptions: undefined,
       topbarList: [],
       toolbarList: [],
     };
@@ -297,18 +298,27 @@ export class VConsole {
     // start init
     plugin.trigger('init');
     // render tab (if it is a tab plugin then it should has tab-related events)
-    plugin.trigger('renderTab', (tabboxHTML) => {
+    plugin.trigger('renderTab', (tabboxHTML, options = {}) => {
       // render tabbar
-      this.compInstance.pluginList[plugin.id].hasTabPanel = true;
+      const pluginInfo = this.compInstance.pluginList[plugin.id]
+      pluginInfo.hasTabPanel = true;
+      pluginInfo.tabOptions = options;
       // render tabbox
       if (!!tabboxHTML) {
-        if (tool.isString(tabboxHTML)) {
-          this.compInstance.divContentInner.innerHTML += tabboxHTML;
-        } else if (tool.isFunction(tabboxHTML.appendTo)) {
-          tabboxHTML.appendTo(this.compInstance.divContentInner);
-        } else if (tool.isElement(tabboxHTML)) {
-          this.compInstance.divContentInner.insertAdjacentElement('beforeend', tabboxHTML);
-        }
+        // when built-in plugins are initializing in the same time,
+        // plugin's `.vc-plugin-box` element will be re-order by `pluginOrder` option,
+        // so the innerHTML should be inserted with a delay
+        // to make sure getting the right `.vc-plugin-box`. (issue #559)
+        setTimeout(() => {
+          const divContentInner = document.querySelector('#__vc_plug_' + plugin.id);
+          if (tool.isString(tabboxHTML)) {
+            divContentInner.innerHTML += tabboxHTML;
+          } else if (tool.isFunction(tabboxHTML.appendTo)) {
+            tabboxHTML.appendTo(divContentInner);
+          } else if (tool.isElement(tabboxHTML)) {
+            divContentInner.insertAdjacentElement('beforeend', tabboxHTML);
+          }
+        }, 0);
       }
       this.compInstance.pluginList = this.compInstance.pluginList;
     });

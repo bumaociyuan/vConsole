@@ -4,7 +4,7 @@
   import { default as SwitchButton } from './switchButton.svelte';
   import { contentStore } from './core.model';
   import Style from './core.less';
-  import type { IVConsoleTopbarOptions, IVConsoleToolbarOptions } from '../lib/plugin';
+  import type { IVConsoleTopbarOptions, IVConsoleToolbarOptions, IVConsoleTabOptions } from '../lib/plugin';
 
   /*************************************
    * Public properties
@@ -14,6 +14,7 @@
     id: string;
     name: string;
     hasTabPanel: boolean;
+    tabOptions?: IVConsoleTabOptions;
     topbarList?: IVConsoleTopbarOptions[];
     toolbarList?: IVConsoleToolbarOptions[];
   }
@@ -25,7 +26,7 @@
   export let switchButtonPosition = { x: 0, y: 0 };
   export let activedPluginId = '';
   export let pluginList: { [id: string]: IPlugin } = {};
-  export let divContentInner: HTMLElement = undefined;
+  export let divContent: HTMLElement;
 
 
   /*************************************
@@ -34,7 +35,6 @@
 
 	const dispatch = createEventDispatcher();
   let preventContentMove = false;
-  let divContent: HTMLElement;
   let unsubscribe: ReturnType<typeof contentStore.subscribe>;
   let fontSize = '';
   let showMain = false;
@@ -294,9 +294,9 @@
   class:vc-toggle={showMain}
   style="{fontSize ? 'font-size:' + fontSize + ';' : ''}"
   data-theme={theme}
-  on:touchstart|capture={mockTapEvent.touchStart}
-  on:touchmove|capture={mockTapEvent.touchMove}
-  on:touchend|capture={mockTapEvent.touchEnd}
+  on:touchstart|capture|nonpassive={mockTapEvent.touchStart}
+  on:touchmove|capture|nonpassive={mockTapEvent.touchMove}
+  on:touchend|capture|nonpassive={mockTapEvent.touchEnd}
 >
   <SwitchButton
     bind:show={showSwitchButton}
@@ -346,8 +346,8 @@
         <div
           id="__vc_plug_{plugin.id}"
           class="vc-plugin-box"
+          class:vc-fixed-height="{plugin.tabOptions?.fixedHeight}"
           class:vc-actived="{plugin.id === activedPluginId}"
-          bind:this={divContentInner}
         ></div>
       {/each}
     </div>
