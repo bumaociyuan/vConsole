@@ -23,6 +23,11 @@
     } else if (typeof req.postData === 'object' && req.postData !== null) {
       curl += ` -d '${tool.safeJSONStringify(req.postData)}'`;
     }
+    if (req.requestHeader != null) {
+      Object.entries(req.requestHeader).forEach(([key, value])=>{
+        curl += ` -H '${key}: ${value}'`;
+      })
+    }
     return `${curl} '${req.url}'`;
   };
 
