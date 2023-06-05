@@ -32,7 +32,7 @@
     if (typeof req.postData === 'string') {
       curl += ` -d '${req.postData}'`;
     } else if (typeof req.postData === 'object' && req.postData !== null) {
-      curl += ` -d '${tool.safeJSONStringify(req.postData)}'`;
+      curl += ` -d '${tool.safeJSONStringify(req.postData, {standardJSON: true})}'`;
     }
     if (req.requestHeader != null) {
       Object.entries(req.requestHeader).forEach(([key, value])=>{
