@@ -2,6 +2,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import * as tool from '../lib/tool';
   import { default as SwitchButton } from './switchButton.svelte';
+  import { default as PluginContent } from '../lib/pluginContent.svelte';
   import { contentStore } from './core.model';
   import Style from './core.less';
   import type { IVConsoleTopbarOptions, IVConsoleToolbarOptions, IVConsoleTabOptions } from '../lib/plugin';
@@ -17,6 +18,7 @@
     tabOptions?: IVConsoleTabOptions;
     topbarList?: IVConsoleTopbarOptions[];
     toolbarList?: IVConsoleToolbarOptions[];
+    content?: HTMLElement;
   }
 
   export let theme = '';
@@ -26,7 +28,6 @@
   export let switchButtonPosition = { x: 0, y: 0 };
   export let activedPluginId = '';
   export let pluginList: { [id: string]: IPlugin } = {};
-  export let divContent: HTMLElement;
 
 
   /*************************************
@@ -43,6 +44,7 @@
   let isInBottom = true;
   let preivousContentUpdateTime = 0;
   let cssTimer = null;
+  let divContent: HTMLElement;
   const contentScrollTop: { [pluginId: string]: number } = {};
 
   $: {
@@ -166,9 +168,29 @@
     }
   };
   const onContentTouchStart = (e) => {
+    // (window as any)._vcOrigConsole.log('onContentTouchStart', e.target.tagName, e.target.className);
+    // skip inputs
+    let isInputElement = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+    if (isInputElement) {
+      return;
+    }
+    // skip scrollable elements
+    let isScrollElement = false;
+    if (typeof window.getComputedStyle === 'function') {
+      const style = window.getComputedStyle(e.target);
+      if (style.overflow === 'auto' || style.overflow === 'initial' || style.overflow === 'scroll') {
+        isScrollElement = true;
+      }
+      // (window as any)._vcOrigConsole.log('onContentTouchStart isScrollElement', style.overflow);
+    }
+    if (isScrollElement) {
+      // (window as any)._vcOrigConsole.log('onContentTouchStart isScrollElement', isScrollElement);
+      return;
+    }
     const top = divContent.scrollTop,
           totalScroll = divContent.scrollHeight,
           currentScroll = top + divContent.offsetHeight;
+    // (window as any)._vcOrigConsole.log('onContentTouchStart', `top=${top}`, `totalScroll=${totalScroll}`, `currentScroll=${currentScroll}`);
     if (top === 0) {
       // when content is on the top,
       // reset scrollTop to lower position to prevent iOS apply scroll action to background
@@ -177,26 +199,23 @@
       // scrollTop always equals to 0 (it is always on the top),
       // so we need to prevent scroll event manually
       if (divContent.scrollTop === 0) {
-        if (e.target.classList && !e.target.classList.contains('vc-cmd-input')) { // skip input
-          preventContentMove = true;
-        }
+        preventContentMove = true;
       }
     } else if (currentScroll === totalScroll) {
       // when content is on the bottom,
       // do similar processing
       divContent.scrollTop = top - 1;
       if (divContent.scrollTop === top) {
-        if (e.target.classList && !e.target.classList.contains('vc-cmd-input')) {
-          preventContentMove = true;
-        }
+        preventContentMove = true;
       }
     }
-    // (window as any)._vcOrigConsole.log('preventContentMove', preventContentMove);
+    // (window as any)._vcOrigConsole.log('onContentTouchStart preventContentMove', preventContentMove);
   };
   const onContentTouchMove = (e) => {
     if (preventContentMove) {
       e.preventDefault();
     }
+    // (window as any)._vcOrigConsole.log('onContentTouchMove preventContentMove', preventContentMove);
   };
   const onContentTouchEnd = (e) => {
     preventContentMove = false;
@@ -236,18 +255,29 @@
     },
     touchMove(e) {
       const touch = e.changedTouches[0];
-      if (Math.abs(touch.pageX - mockTapInfo.touchstartX) > mockTapInfo.tapBoundary || Math.abs(touch.pageY - mockTapInfo.touchstartY) > mockTapInfo.tapBoundary) {
+      if (
+        Math.abs(touch.pageX - mockTapInfo.touchstartX) > mockTapInfo.tapBoundary ||
+        Math.abs(touch.pageY - mockTapInfo.touchstartY) > mockTapInfo.tapBoundary
+      ) {
         mockTapInfo.touchHasMoved = true;
       }
+      // (window as any)._vcOrigConsole.log('mockTapEvent.touchMove',  mockTapInfo.touchHasMoved);
     },
     touchEnd(e) {
       // move and time within limits, manually trigger `click` event
-      if (mockTapInfo.touchHasMoved === false && e.timeStamp - mockTapInfo.lastTouchStartTime < mockTapInfo.tapTime && mockTapInfo.targetElem != null) {
+      if (
+        mockTapInfo.touchHasMoved === false &&
+        e.timeStamp - mockTapInfo.lastTouchStartTime < mockTapInfo.tapTime &&
+        mockTapInfo.targetElem != null
+      ) {
         const tagName = mockTapInfo.targetElem.tagName.toLowerCase();
         let needFocus = false;
         switch (tagName) {
           case 'textarea': // focus
             needFocus = true; break;
+          case 'select':
+            needFocus = !mockTapInfo.targetElem.disabled && !mockTapInfo.targetElem.readOnly;
+            break;
           case 'input':
             switch (mockTapInfo.targetElem.type) {
               case 'button':
@@ -343,12 +373,13 @@
       on:scroll={onContentScroll}
     >
       {#each Object.entries(pluginList) as [pluginId, plugin]}
-        <div
-          id="__vc_plug_{plugin.id}"
-          class="vc-plugin-box"
-          class:vc-fixed-height="{plugin.tabOptions?.fixedHeight}"
-          class:vc-actived="{plugin.id === activedPluginId}"
-        ></div>
+        <svelte:component
+          this={PluginContent} 
+          pluginId={plugin.id} 
+          fixedHeight={plugin.tabOptions?.fixedHeight} 
+          actived={plugin.id === activedPluginId} 
+          content={plugin.content}
+        />
       {/each}
     </div>
 

@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import * as tool from '../lib/tool';
-  import IconCopy from '../component/iconCopy.svelte';
+  import IconCopy from '../component/icon/iconCopy.svelte';
   import { requestList } from './network.model';
   import Style from './network.less';
+  import RecycleScroller from '../component/recycleScroller/recycleScroller.svelte';
   import type { VConsoleNetworkRequestItem } from './requestItem';
+  import type { IVConsoleTabOptions } from "../lib/plugin";
 
   let reqCount = 0;
   const updateReqCount = (list: typeof $requestList) => {
@@ -12,6 +14,15 @@
   };
   const unsubscribe = requestList.subscribe(updateReqCount);
   updateReqCount($requestList);
+
+  export const options: IVConsoleTabOptions = {
+    fixedHeight: true,
+  };
+
+  let reqList = [];
+  $: {
+    reqList = Object.values($requestList);
+  }
 
   const onTapPreview = (reqId: string) => {
     $requestList[reqId].actived = !$requestList[reqId].actived;
@@ -49,17 +60,29 @@
 </script>
 
 <div class="vc-table">
-    
-  <dl class="vc-table-row">
-    <dd class="vc-table-col vc-table-col-4">Name {#if reqCount > 0}({reqCount}){/if}</dd>
-    <dd class="vc-table-col">Method</dd>
-    <dd class="vc-table-col">Status</dd>
-    <dd class="vc-table-col">Time</dd>
-  </dl>
 
   <div class="vc-plugin-content">
-    {#each Object.entries($requestList) as [reqId, req]}
-      <div class="vc-group" class:vc-actived="{req.actived}" id="{req.id}">
+    <RecycleScroller
+      items={reqList}
+      itemKey="id"
+      itemHeight={30}
+      buffer={100}
+      stickToBottom
+      scrollbar
+    >
+    
+      <svelte:fragment slot="header">
+        <dl class="vc-table-row">
+          <dd class="vc-table-col vc-table-col-4">Name {#if reqCount > 0}({reqCount}){/if}</dd>
+          <dd class="vc-table-col">Method</dd>
+          <dd class="vc-table-col">Status</dd>
+          <dd class="vc-table-col">Time</dd>
+        </dl>
+      </svelte:fragment>
+      
+      <div slot="empty" class="vc-plugin-empty">Empty</div>
+
+      <div slot="item" let:item={req} class="vc-group" class:vc-actived="{req.actived}" id="{req.id}">
         <dl class="vc-table-row vc-group-preview" class:vc-table-row-error="{req.status >= 400}" on:click={() => onTapPreview(req.id)}>
           <dd class="vc-table-col vc-table-col-4">{req.name}</dd>
           <dd class="vc-table-col">{req.method}</dd>
@@ -137,13 +160,19 @@
             </dl>
             {#if (typeof req.postData === 'string')}
               <div class="vc-table-row vc-left-border vc-small">
-                <pre class="vc-table-col vc-table-col-value vc-max-height-line">{req.postData}</pre>
+                <pre
+                  class="vc-table-col vc-table-col-value vc-max-height-line"
+                  data-scrollable="1"
+                >{req.postData}</pre>
               </div>
             {:else}
               {#each Object.entries(req.postData) as [key, item]}
               <div class="vc-table-row vc-left-border vc-small">
                 <div class="vc-table-col vc-table-col-2">{key}</div>
-                <div class="vc-table-col vc-table-col-4 vc-table-col-value vc-max-height-line">{prettyStringify(item)}</div>
+                <div
+                  class="vc-table-col vc-table-col-4 vc-table-col-value vc-max-height-line"
+                  data-scrollable="1"
+                >{prettyStringify(item)}</div>
               </div>
               {/each}
             {/if}
@@ -179,12 +208,14 @@
             </div>
             {/if}
             <div class="vc-table-row vc-left-border vc-small">
-              <pre class="vc-table-col vc-max-height vc-min-height">{req.response || ''}</pre>
+              <pre
+                class="vc-table-col vc-max-height vc-min-height"
+                data-scrollable="1"
+              >{req.response || ''}</pre>
             </div>
           </div>
         </div>
       </div>
-    {/each}
-
+    </RecycleScroller>
   </div>
 </div>
