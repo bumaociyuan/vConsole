@@ -39,6 +39,10 @@
         curl += ` -H '${key}: ${value}'`;
       })
     }
+    // 添加 Cookie（如果存在）
+    if (document.cookie) {
+      curl += ` -H 'Cookie: ${document.cookie}'`;
+    }
     return `${curl} '${req.url}'`;
   };
 
